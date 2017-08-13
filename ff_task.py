@@ -7,7 +7,7 @@ from nltk import sent_tokenize
 import sklearn.feature_extraction.text as sktext
 from sklearn import metrics
 from sklearn import svm
-from sklearn import dummy
+# from sklearn import dummy
 import requests
 import urllib.request as urls
 from urllib.error import HTTPError
@@ -115,7 +115,8 @@ def train_test_split(df, ratio=0.8):
 def enhance_data(df, X_train, y_train):
     """Get sentences from web pages to extend training set."""
     num_sentences = 20
-    for i in range(0, len(df)):
+    num_documents = len(df)
+    for i in range(0, num_documents):
         text = get_web_text(df.iloc[i]['url'])
         if text:
             ss = sent_tokenize(text)[0:num_sentences]
@@ -133,8 +134,8 @@ def build_model(X_train, X_test, y_train, y_test):
     X_train_counts = count_vect.fit_transform(X_train)
     tfidf_transformer = sktext.TfidfTransformer()
     X_train_tfidf = tfidf_transformer.fit_transform(X_train_counts)
-    # model = svm.LinearSVC()
-    model = dummy.DummyClassifier(strategy="uniform")
+    model = svm.LinearSVC()
+    # model = dummy.DummyClassifier(strategy="stratified")
     model.fit(X_train_tfidf, y_train)
     X_new_counts = count_vect.transform(X_test)
     X_new_tfidf = tfidf_transformer.transform(X_new_counts)
@@ -158,37 +159,37 @@ def enhance_expt(df):
     raw_f1 = metrics.f1_score(y_test, df_out['pred'], average=None)
     class_sizes = priors(df)
     weighted_f1 = np.dot(raw_f1, list(class_sizes.values())) / sum(class_sizes.values())
-    results = {"init_size": len(X_train), "init_raw_f1": raw_f1, "init_weighted_f1": weighted_f1}
+    accuracy = metrics.accuracy_score(y_test, df_out['pred'])
+    results = {"init_size": len(X_train), "init_raw_f1": raw_f1, "init_weighted_f1": weighted_f1, "init_accuracy": accuracy}
 
     X_train_en, y_train_en = enhance_data(df, X_train, y_train)
     classifier, df_out = build_model(X_train_en, X_test, y_train_en, y_test)
     raw_f1 = metrics.f1_score(y_test, df_out['pred'], average=None)
+    accuracy_en = metrics.accuracy_score(y_test, df_out['pred'])
     class_sizes = priors(df)
     weighted_f1 = np.dot(raw_f1, list(class_sizes.values())) / sum(class_sizes.values())
-    results.update({"enhanced_size": len(X_train_en), "enhanced_raw_f1": raw_f1, "enhanced_weighted_f1": weighted_f1})
+    results.update({"enhanced_size": len(X_train_en), "enhanced_raw_f1": raw_f1, "enhanced_weighted_f1": weighted_f1, "enhanced_accuracy": accuracy_en})
     return (results, df_out, classifier)
 
 
-def classify_sentence(classifier, sentence):
-    X_new_counts = classifier["counter"].transform([sentence])
+def classify_sentences(classifier, sentence):
+    if isinstance(sentence, str):
+        sentence = [sentence]
+    X_new_counts = classifier["counter"].transform(sentence)
     X_new_tfidf = classifier["transformer"].transform(X_new_counts)
-    predicted = classifier["model"].predict(X_new_tfidf)[0]
-    print("Claim '{}' belongs to topic: {}".format(sentence, predicted))
+    predicted = classifier["model"].predict(X_new_tfidf)
+    for s, p in zip(sentence, predicted):
+        print("Claim '{}' assigned to topic: {}".format(s, p.capitalize()))
 
 
-random.seed(1)
+# Main experiment script:
 df_raw = load_data()
 df = init_filter(df_raw)
-df = subsample(df, 0.5)
+df = subsample(df, 0.4)
 results, df_out, classifier = enhance_expt(df)
 print("Basic training size    {}\tF1={:.3f}".format(results["init_size"], results["init_weighted_f1"]))
 print("Enahnced training size {}\tF1={:.3f}".format(results["enhanced_size"], results["enhanced_weighted_f1"]))
-
-classify_sentence(classifier, "Many workers arrived from Eastern Europe")
-classify_sentence(classifier, "EU farm subsidies are for EU farms")
-classify_sentence(classifier, "Rise in smoking linked to straight bananas")
-
-# num_errors = len(df_out[df_out['match'] is False])
-# print("Total errors: {}".format(num_errors))
-# if num_errors > 0:
-#     print(df_out[df_out['match'] is False])
+classify_sentences(classifier, "Many workers arrived from Eastern Europe")
+classify_sentences(classifier, ["EU farm subsidies are for EU farms", 
+                                "Rise in smoking linked to straight bananas",
+                                "British workers put in longer hours for lower pay than German workers."])
