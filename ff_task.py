@@ -7,6 +7,7 @@ from nltk import sent_tokenize
 import sklearn.feature_extraction.text as sktext
 from sklearn import metrics
 from sklearn import svm
+from sklearn import dummy
 import requests
 import urllib.request as urls
 from urllib.error import HTTPError
@@ -126,13 +127,14 @@ def enhance_data(df, X_train, y_train):
     return X_train, y_train
 
 
-def eval_model(X_train, X_test, y_train, y_test):
-    """Build and evaluate a model"""
+def build_model(X_train, X_test, y_train, y_test):
+    """Build and evaluate a model. Also returns the test-set predictions."""
     count_vect = sktext.CountVectorizer()
     X_train_counts = count_vect.fit_transform(X_train)
     tfidf_transformer = sktext.TfidfTransformer()
     X_train_tfidf = tfidf_transformer.fit_transform(X_train_counts)
-    model = svm.LinearSVC()
+    # model = svm.LinearSVC()
+    model = dummy.DummyClassifier(strategy="uniform")
     model.fit(X_train_tfidf, y_train)
     X_new_counts = count_vect.transform(X_test)
     X_new_tfidf = tfidf_transformer.transform(X_new_counts)
@@ -151,7 +153,7 @@ def enhance_expt(df):
     """Compare model built with initial claim-only data to model built
        with extra data from FullFact.org"""
     X_train, X_test, y_train, y_test = train_test_split(df)
-    _, df_out = eval_model(X_train, X_test, y_train, y_test)
+    _, df_out = build_model(X_train, X_test, y_train, y_test)
 
     raw_f1 = metrics.f1_score(y_test, df_out['pred'], average=None)
     class_sizes = priors(df)
@@ -159,7 +161,7 @@ def enhance_expt(df):
     results = {"init_size": len(X_train), "init_raw_f1": raw_f1, "init_weighted_f1": weighted_f1}
 
     X_train_en, y_train_en = enhance_data(df, X_train, y_train)
-    classifier, df_out = eval_model(X_train_en, X_test, y_train_en, y_test)
+    classifier, df_out = build_model(X_train_en, X_test, y_train_en, y_test)
     raw_f1 = metrics.f1_score(y_test, df_out['pred'], average=None)
     class_sizes = priors(df)
     weighted_f1 = np.dot(raw_f1, list(class_sizes.values())) / sum(class_sizes.values())
