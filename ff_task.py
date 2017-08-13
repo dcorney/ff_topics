@@ -4,8 +4,6 @@ import pandas as pd
 import random
 import os.path
 from nltk import sent_tokenize
-# from sklearn.feature_extraction.text import TfidfTransformer
-# from sklearn.feature_extraction.text import CountVectorizer
 import sklearn.feature_extraction.text as sktext
 from sklearn import metrics
 from sklearn import svm
@@ -144,14 +142,16 @@ def eval_model(X_train, X_test, y_train, y_test):
     df_out['pred'] = predicted
     df_out['claim'] = X_test
     df_out['match'] = df_out['pred'] == df_out['topic']
-    return (model, df_out)
+
+    classifier = {"model": model, "counter": count_vect, "transformer": tfidf_transformer, }
+    return (classifier, df_out)
 
 
 def enhance_expt(df):
     """Compare model built with initial claim-only data to model built
        with extra data from FullFact.org"""
     X_train, X_test, y_train, y_test = train_test_split(df)
-    model, df_out = eval_model(X_train, X_test, y_train, y_test)
+    _, df_out = eval_model(X_train, X_test, y_train, y_test)
 
     raw_f1 = metrics.f1_score(y_test, df_out['pred'], average=None)
     class_sizes = priors(df)
@@ -159,21 +159,32 @@ def enhance_expt(df):
     results = {"init_size": len(X_train), "init_raw_f1": raw_f1, "init_weighted_f1": weighted_f1}
 
     X_train_en, y_train_en = enhance_data(df, X_train, y_train)
-    model, df_out = eval_model(X_train_en, X_test, y_train_en, y_test)
+    classifier, df_out = eval_model(X_train_en, X_test, y_train_en, y_test)
     raw_f1 = metrics.f1_score(y_test, df_out['pred'], average=None)
     class_sizes = priors(df)
     weighted_f1 = np.dot(raw_f1, list(class_sizes.values())) / sum(class_sizes.values())
     results.update({"enhanced_size": len(X_train_en), "enhanced_raw_f1": raw_f1, "enhanced_weighted_f1": weighted_f1})
-    return (results, df_out)
+    return (results, df_out, classifier)
+
+
+def classify_sentence(classifier, sentence):
+    X_new_counts = classifier["counter"].transform([sentence])
+    X_new_tfidf = classifier["transformer"].transform(X_new_counts)
+    predicted = classifier["model"].predict(X_new_tfidf)[0]
+    print("Claim '{}' belongs to topic: {}".format(sentence, predicted))
 
 
 random.seed(1)
 df_raw = load_data()
 df = init_filter(df_raw)
-df = subsample(df, 0.25)
-results, df_out = enhance_expt(df)
+df = subsample(df, 0.5)
+results, df_out, classifier = enhance_expt(df)
 print("Basic training size    {}\tF1={:.3f}".format(results["init_size"], results["init_weighted_f1"]))
 print("Enahnced training size {}\tF1={:.3f}".format(results["enhanced_size"], results["enhanced_weighted_f1"]))
+
+classify_sentence(classifier, "Many workers arrived from Eastern Europe")
+classify_sentence(classifier, "EU farm subsidies are for EU farms")
+classify_sentence(classifier, "Rise in smoking linked to straight bananas")
 
 # num_errors = len(df_out[df_out['match'] is False])
 # print("Total errors: {}".format(num_errors))
